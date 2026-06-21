@@ -28,7 +28,6 @@ The project codebase is organized into the following structured directories:
         *   [test_detection_latency.py](file:///d:/Temple%20Project/scripts/exploratory/test_detection_latency.py): Multi-shift analysis moving the positive window backward in time to characterize temporal latency boundaries.
     *   **`scripts/utils/`**: Utility scripts:
         *   [download_data.py](file:///d:/Temple%20Project/scripts/utils/download_data.py): Automated downloader utilizing standard HTTP Range requests to retrieve the dataset.
-        *   [generate_results_md.py](file:///d:/Temple%20Project/scripts/utils/generate_results_md.py): Compiler script gathering saved results CSVs and generating the main markdown report.
 *   **`results/`**: Contained directory storing the output CSV performance metrics for all subjects and evaluation pipelines.
 *   **`requirements.txt`**: Project dependency definitions mapping exact versions of external libraries used.
 

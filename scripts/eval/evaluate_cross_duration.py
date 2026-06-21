@@ -4,7 +4,7 @@ import numpy as np
 import pandas as pd
 
 # Add workspace root to sys.path
-sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+sys.path.append(os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))))
 
 from src import config
 from src.preprocessing import load_and_preprocess_raw, reject_artifact_windows
@@ -360,7 +360,9 @@ if __name__ == "__main__":
         all_results.extend(res)
         
     df = pd.DataFrame(all_results)
-    csv_path = r"d:\Temple Project\cross_duration_results.csv"
+    script_dir = os.path.dirname(os.path.abspath(__file__))
+    root_dir = os.path.dirname(os.path.dirname(script_dir))
+    csv_path = os.path.join(root_dir, "results", "cross_duration_results.csv")
     df.to_csv(csv_path, index=False)
     print(f"\nSaved cross duration evaluation results to: {csv_path}")
     

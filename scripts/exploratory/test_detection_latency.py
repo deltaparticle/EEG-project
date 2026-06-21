@@ -337,9 +337,9 @@ if __name__ == "__main__":
         all_results.extend(subj_res)
         
     df_all = pd.DataFrame(all_results)
-    
-    # Save the detailed results to CSV
-    csv_path = r"d:\Temple Project\detection_latency_results.csv"
+    script_dir = os.path.dirname(os.path.abspath(__file__))
+    root_dir = os.path.dirname(os.path.dirname(script_dir))
+    csv_path = os.path.join(root_dir, "results", "detection_latency_results.csv")
     df_all.to_csv(csv_path, index=False)
     print(f"\nSaved detailed latency evaluation results to: {csv_path}")
     

@@ -192,7 +192,9 @@ if __name__ == "__main__":
                 
     # Save cross-subject results
     df_res = pd.DataFrame(results)
-    csv_path = r"d:\Temple Project\cross_subject_results.csv"
+    script_dir = os.path.dirname(os.path.abspath(__file__))
+    root_dir = os.path.dirname(os.path.dirname(script_dir))
+    csv_path = os.path.join(root_dir, "results", "cross_subject_results.csv")
     df_res.to_csv(csv_path, index=False)
     print(f"\nSaved all-to-all cross-subject evaluation results to: {csv_path}")
     

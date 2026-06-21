@@ -206,7 +206,9 @@ if __name__ == "__main__":
         all_results.extend(res)
         
     df = pd.DataFrame(all_results)
-    csv_path = r"d:\Temple Project\mixed_windows_results.csv"
+    script_dir = os.path.dirname(os.path.abspath(__file__))
+    root_dir = os.path.dirname(os.path.dirname(script_dir))
+    csv_path = os.path.join(root_dir, "results", "mixed_windows_results.csv")
     df.to_csv(csv_path, index=False)
     print(f"\nSaved mixed window evaluation results to: {csv_path}")
     

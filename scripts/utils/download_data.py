@@ -11,7 +11,9 @@ from botocore.config import Config
 
 bucket_name = "openneuro.org"
 dataset_id = "ds003626"
-target_dir = r"d:\Temple Project\ds003626"
+script_dir = os.path.dirname(os.path.abspath(__file__))
+root_dir = os.path.dirname(os.path.dirname(script_dir))
+target_dir = os.path.join(root_dir, "ds003626")
 
 # Clean up leftover temporary files
 print("Cleaning up leftover temporary files...")

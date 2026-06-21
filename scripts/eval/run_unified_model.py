@@ -219,7 +219,9 @@ if __name__ == "__main__":
         })
         
     df_res = pd.DataFrame(results)
-    csv_path = r"d:\Temple Project\unified_model_results.csv"
+    script_dir = os.path.dirname(os.path.abspath(__file__))
+    root_dir = os.path.dirname(os.path.dirname(script_dir))
+    csv_path = os.path.join(root_dir, "results", "unified_model_results.csv")
     df_res.to_csv(csv_path, index=False)
     print(f"\nSaved unified model results to: {csv_path}")
     

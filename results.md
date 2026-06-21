@@ -368,7 +368,7 @@ A single global Linear SVM ($C=0.5$, class_weight='balanced') was trained on poo
 | **Ratio 1:1** | 66.67% | 66.67% | 67.36% | 64.67% | 65.99% | 71.08% | 31.33% |
 | **Ratio 1:2** | 65.56% | 65.33% | 48.74% | 64.67% | 55.59% | 71.91% | 34.00% |
 
-*Note: The unified model's accuracy of **66.67%** (1:1 ratio) falls within the paper's target within-subject range ($65\% - 80\%$) and outperforms pure cross-subject transfer ($55.38\%$), demonstrating that exposing the model to some trials of all subjects during training allows it to learn a robust global decision boundary.*
+*Note: The unified model's accuracy of **66.67%** (1:1 ratio) falls within the paper's target within-subject range (65\% - 80\%) and outperforms pure cross-subject transfer (55.38\%), demonstrating that exposing the model to some trials of all subjects during training allows it to learn a robust global decision boundary.*
 
 ## 6. Real-Time Latency Optimization: Window Shortening & Cross-Duration Performance
 

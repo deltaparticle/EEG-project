@@ -1,0 +1,321 @@
+import os
+import sys
+sys.path.append(os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))))
+
+import numpy as np
+import pandas as pd
+from src import config
+from src.preprocessing import load_and_preprocess_raw, reject_artifact_windows
+from src.features import extract_features_from_epoch
+from src.model import evaluate_model
+from sklearn.svm import SVC
+from sklearn.preprocessing import StandardScaler
+from sklearn.pipeline import Pipeline
+import mne
+
+def estimate_baseline_variance_dynamic(raw, window_duration_sec):
+    """
+    Finds baseline events (trigger 13 to 14) and slices baseline into window_duration_sec windows.
+    Returns variances.
+    """
+    sfreq = raw.info['sfreq']
+    window_samples = int(window_duration_sec * sfreq)
+    
+    events = mne.find_events(raw, stim_channel="Status", verbose='WARNING')
+    eeg_data = raw.get_data(picks=config.CHANNELS_TO_USE)
+    
+    variances = []
+    for i in range(len(events)):
+        sample_idx = events[i][0]
+        code = events[i][2]
+        
+        if code == 13:
+            next_sample = eeg_data.shape[1]
+            if i + 1 < len(events) and events[i+1][2] == 14:
+                next_sample = events[i+1][0]
+                
+            for start_idx in range(sample_idx, next_sample - window_samples, window_samples):
+                epoch = eeg_data[:, start_idx:start_idx + window_samples]
+                if epoch.shape[1] == window_samples:
+                    epoch_var = np.var(epoch, axis=1)
+                    variances.append(epoch_var)
+    return np.array(variances) if len(variances) > 0 else np.empty((0, len(config.CHANNELS_TO_USE)))
+
+def slice_epochs_from_raw_dynamic(raw, window_duration_sec):
+    """
+    Slices raw data into epochs of custom window duration.
+    """
+    sfreq = raw.info['sfreq']
+    window_samples = int(window_duration_sec * sfreq)
+    
+    eeg_data = raw.get_data(picks=config.CHANNELS_TO_USE)
+    events = mne.find_events(raw, stim_channel="Status", verbose='WARNING')
+    
+    epochs_list = []
+    labels_list = []
+    trial_ids_list = []
+    
+    current_run = None
+    trial_counter = 0
+    
+    for i in range(len(events)):
+        sample_idx = events[i][0]
+        code = events[i][2]
+        
+        next_sample_idx = events[i+1][0] if i+1 < len(events) else eeg_data.shape[1]
+        
+        if code in [config.RUN_PRONOUNCED, config.RUN_INNER, config.RUN_VISUALIZED]:
+            current_run = code
+            continue
+            
+        if current_run == config.RUN_INNER:
+            continue
+            
+        if code in [31, 32, 33, 34]:
+            trial_counter += 1
+            for start_idx in range(sample_idx, next_sample_idx - window_samples, window_samples):
+                epoch = eeg_data[:, start_idx:start_idx + window_samples]
+                if epoch.shape[1] == window_samples:
+                    epochs_list.append(epoch)
+                    labels_list.append(0)
+                    trial_ids_list.append(trial_counter)
+            continue
+            
+        if code == 42:
+            for start_idx in range(sample_idx, next_sample_idx - window_samples, window_samples):
+                epoch = eeg_data[:, start_idx:start_idx + window_samples]
+                if epoch.shape[1] == window_samples:
+                    epochs_list.append(epoch)
+                    labels_list.append(0)
+                    trial_ids_list.append(trial_counter)
+            continue
+            
+        if code == config.TRIGGER_ACTION_ONSET:
+            if current_run == config.RUN_PRONOUNCED:
+                # Positive Window before action trigger
+                start_idx = sample_idx - window_samples
+                if start_idx >= 0:
+                    epoch = eeg_data[:, start_idx:sample_idx]
+                    if epoch.shape[1] == window_samples:
+                        epochs_list.append(epoch)
+                        labels_list.append(1)
+                        trial_ids_list.append(trial_counter)
+            elif current_run == config.RUN_VISUALIZED:
+                for start_idx in range(sample_idx, next_sample_idx - window_samples, window_samples):
+                    epoch = eeg_data[:, start_idx:start_idx + window_samples]
+                    if epoch.shape[1] == window_samples:
+                        epochs_list.append(epoch)
+                        labels_list.append(0)
+                        trial_ids_list.append(trial_counter)
+            continue
+            
+        if code == config.TRIGGER_REST_ONSET:
+            limit_idx = min(next_sample_idx, sample_idx + int(4.0 * sfreq))
+            for start_idx in range(sample_idx, limit_idx - window_samples, window_samples):
+                epoch = eeg_data[:, start_idx:start_idx + window_samples]
+                if epoch.shape[1] == window_samples:
+                    epochs_list.append(epoch)
+                    labels_list.append(0)
+                    trial_ids_list.append(trial_counter)
+            continue
+            
+    return epochs_list, labels_list, trial_ids_list
+
+def balance_indices(indices, y, ratio_n):
+    split_y = y[indices]
+    pos_idx = np.where(split_y == 1)[0]
+    neg_idx = np.where(split_y == 0)[0]
+    
+    n_pos = len(pos_idx)
+    n_neg_needed = int(n_pos * ratio_n)
+    
+    if len(neg_idx) < n_neg_needed:
+        sampled_neg_idx = neg_idx
+    else:
+        sampled_neg_idx = np.random.choice(neg_idx, size=n_neg_needed, replace=False)
+        
+    final_idx = np.concatenate([pos_idx, sampled_neg_idx])
+    np.random.shuffle(final_idx)
+    return [indices[i] for i in final_idx]
+
+def run_short_window_pipeline(subject, window_duration_sec):
+    print(f"\n==================================================")
+    print(f"  RUNNING PIPELINE: {subject} ({int(window_duration_sec*1000)}ms window)")
+    print(f"==================================================")
+    
+    percentile = 95
+    sessions = ["ses-01", "ses-02", "ses-03"]
+    
+    # Compute baseline variance thresholds
+    all_subj_variances = []
+    for session in sessions:
+        try:
+            raw = load_and_preprocess_raw(subject, session)
+            session_vars = estimate_baseline_variance_dynamic(raw, window_duration_sec)
+            if len(session_vars) > 0:
+                all_subj_variances.append(session_vars)
+        except Exception as e:
+            print(f"  [{subject} | {session}] Error baseline: {e}")
+            
+    if len(all_subj_variances) > 0:
+        combined_vars = np.vstack(all_subj_variances)
+        var_thresholds = np.percentile(combined_vars, percentile, axis=0)
+    else:
+        var_thresholds = None
+        
+    # Slice epochs
+    X_subj = []
+    y_subj = []
+    trial_ids_subj = []
+    session_ids_subj = []
+    trial_offset = 0
+    
+    for idx, session in enumerate(sessions, 1):
+        try:
+            raw = load_and_preprocess_raw(subject, session)
+            epochs, labels, trial_ids = slice_epochs_from_raw_dynamic(raw, window_duration_sec)
+            
+            if len(epochs) == 0:
+                continue
+                
+            epochs_array = np.array(epochs)
+            clean_indices = reject_artifact_windows(
+                epochs_array, var_thresholds=var_thresholds, threshold_uv=config.ARTIFACT_THRESHOLD
+            )
+            
+            clean_epochs = [epochs[i] for i in clean_indices]
+            clean_labels = [labels[i] for i in clean_indices]
+            clean_trial_ids = [trial_ids[i] for i in clean_indices]
+            
+            if len(clean_epochs) == 0:
+                continue
+                
+            X_subj.append(np.array(clean_epochs))
+            y_subj.append(np.array(clean_labels))
+            trial_ids_subj.append(np.array(clean_trial_ids) + trial_offset)
+            session_ids_subj.append(np.array([idx] * len(clean_epochs)))
+            
+            trial_offset = max(trial_ids_subj[-1]) if len(clean_trial_ids) > 0 else trial_offset
+        except Exception as e:
+            print(f"  [{subject} | {session}] Error processing: {e}")
+            
+    if len(X_subj) == 0:
+        return []
+        
+    X = np.vstack(X_subj)
+    y = np.concatenate(y_subj)
+    trial_ids = np.concatenate(trial_ids_subj)
+    session_ids = np.concatenate(session_ids_subj)
+    
+    results = []
+    
+    # Loop over class ratios
+    for ratio in [1, 2]:
+        unique_trials = np.unique(trial_ids)
+        np.random.seed(42)
+        np.random.shuffle(unique_trials)
+        n_trials = len(unique_trials)
+        n_train = int(0.70 * n_trials)
+        n_val = int(0.15 * n_trials)
+        
+        train_trials = set(unique_trials[:n_train])
+        val_trials = set(unique_trials[n_train:n_train+n_val])
+        test_trials = set(unique_trials[n_train+n_val:])
+        
+        train_idx_all = [i for i, tid in enumerate(trial_ids) if tid in train_trials]
+        val_idx_all = [i for i, tid in enumerate(trial_ids) if tid in val_trials]
+        test_idx_all = [i for i, tid in enumerate(trial_ids) if tid in test_trials]
+        
+        np.random.seed(42)
+        train_indices = balance_indices(train_idx_all, y, ratio)
+        val_indices = balance_indices(val_idx_all, y, ratio)
+        test_indices = balance_indices(test_idx_all, y, ratio)
+        
+        X_train_raw = X[train_indices]
+        X_val_raw = X[val_indices]
+        X_test_raw = X[test_indices]
+        y_train = y[train_indices]
+        y_val = y[val_indices]
+        y_test = y[test_indices]
+        
+        # Z-score normalization
+        n_channels = X_train_raw.shape[1]
+        means = np.zeros(n_channels)
+        stds = np.ones(n_channels)
+        for ch in range(n_channels):
+            ch_data = X_train_raw[:, ch, :]
+            means[ch] = np.mean(ch_data)
+            stds[ch] = np.std(ch_data)
+            
+        X_train_norm = X_train_raw.copy()
+        X_val_norm = X_val_raw.copy()
+        X_test_norm = X_test_raw.copy()
+        for ch in range(n_channels):
+            X_train_norm[:, ch, :] = (X_train_raw[:, ch, :] - means[ch]) / (stds[ch] + 1e-8)
+            X_val_norm[:, ch, :] = (X_val_raw[:, ch, :] - means[ch]) / (stds[ch] + 1e-8)
+            X_test_norm[:, ch, :] = (X_test_raw[:, ch, :] - means[ch]) / (stds[ch] + 1e-8)
+            
+        # Extract features
+        X_train_features = np.array([extract_features_from_epoch(epoch, use_18=True) for epoch in X_train_norm])
+        X_val_features = np.array([extract_features_from_epoch(epoch, use_18=True) for epoch in X_val_norm])
+        X_test_features = np.array([extract_features_from_epoch(epoch, use_18=True) for epoch in X_test_norm])
+        
+        # Train Linear SVM
+        X_combined = np.vstack([X_train_features, X_val_features])
+        y_combined = np.concatenate([y_train, y_val])
+        
+        model = Pipeline([
+            ('scaler', StandardScaler()),
+            ('clf', SVC(kernel='linear', C=2.0, class_weight='balanced', random_state=42))
+        ])
+        model.fit(X_combined, y_combined)
+        
+        # Evaluate model
+        metrics = evaluate_model(model, X_test_features, y_test)
+        
+        results.append({
+            "Subject": subject,
+            "Ratio": f"1:{ratio}",
+            "Window_ms": int(window_duration_sec * 1000),
+            "Accuracy": metrics["accuracy"],
+            "Balanced_Accuracy": metrics["balanced_accuracy"],
+            "Precision": metrics["precision"],
+            "Recall": metrics["recall"],
+            "F1_Score": metrics["f1"],
+            "ROC_AUC": metrics["roc_auc"],
+            "FPR": metrics["fpr"]
+        })
+        
+    return results
+
+if __name__ == "__main__":
+    import sys
+    
+    all_results = []
+    window_lengths = [0.3, 0.2] # 300 ms and 200 ms
+    
+    for length in window_lengths:
+        for subj in config.SUBJECTS:
+            res = run_short_window_pipeline(subj, length)
+            all_results.extend(res)
+            
+    df = pd.DataFrame(all_results)
+    csv_path = r"d:\Temple Project\short_windows_results.csv"
+    df.to_csv(csv_path, index=False)
+    print(f"\nSaved short window evaluation results to: {csv_path}")
+    
+    # Print summary table
+    print("\n" + "="*80)
+    print("  SHORT WINDOWS PIPELINE RESULTS (AVERAGE ACROSS SUBJECTS)")
+    print("="*80)
+    
+    summary = df.groupby(["Window_ms", "Ratio"])[["Accuracy", "Balanced_Accuracy", "Precision", "Recall", "F1_Score", "ROC_AUC", "FPR"]].mean().reset_index()
+    print(summary.to_string(index=False, formatters={
+        "Accuracy": "{:.2%}".format,
+        "Balanced_Accuracy": "{:.2%}".format,
+        "Precision": "{:.2%}".format,
+        "Recall": "{:.2%}".format,
+        "F1_Score": "{:.2%}".format,
+        "ROC_AUC": "{:.2%}".format,
+        "FPR": "{:.2%}".format
+    }))

@@ -207,6 +207,7 @@ During system optimization, alternative classifiers were benchmarked and ultimat
 *   **Linear Discriminant Analysis (LDA)**: Stable within-subject performance, but struggled with cross-subject transfer due to class imbalance under the 1:2 ratio. Standard LDA suffered from numerical instability due to high covariance correlation among adjacent channels.
 *   **Ridge Classifier**: Lacks the margin-maximizing properties that make SVMs robust to non-Gaussian trial-to-trial outliers in EEG data.
 *   **Tree-Based Ensembles (Random Forest & Extra Trees)**: Suffered from severe overfitting on the high-dimensional feature space (324 dimensions). They struggled to find meaningful orthogonal decision boundaries because EEG features (e.g., band powers across adjacent channels) are highly correlated.
+*   **Kernel SVM (RBF Kernel)**: Benchmarked during optimization (testing scales $C \in \{1, 10, 100\}$) but rejected. Because the number of training trials per subject is small (~66 positive epochs) relative to the feature dimensionality (72 features), mapping to a high-dimensional space via the RBF kernel caused overfitting on the training set.
 *   **Multi-Layer Perceptron (MLP)**: MLP networks overfitted to the small number of trials per subject, failing to generalize to unseen test sets and yielding unstable training dynamics.
 
 ---

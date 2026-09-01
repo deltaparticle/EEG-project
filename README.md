@@ -153,7 +153,7 @@ To prevent leakage, dataset splitting is performed strictly at the **trial level
 
 ## 7. Experimental Results
 
-The experimental results for the Linear SVM ($C=0.5$) are compiled below:
+The experimental results for the Linear SVM ($C=0.5$) are given below:
 
 ### 7.1 Within-Subject Classification Results
 Within-subject performance is evaluated separately for each participant, reflecting BCI personalization:
